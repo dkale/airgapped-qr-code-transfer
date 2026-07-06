@@ -44,6 +44,22 @@
             class="w-full accent-slate-900 disabled:cursor-not-allowed disabled:opacity-60"
           />
         </div>
+        <div class="mb-6 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+          <label class="flex items-start gap-3 text-sm text-slate-700">
+            <input
+              type="checkbox"
+              v-model="continuous_broadcast_enabled"
+              :disabled="is_preparing || is_transferring"
+              class="mt-1 h-4 w-4 rounded border-slate-300 accent-slate-900 disabled:cursor-not-allowed disabled:opacity-60"
+            />
+            <span>
+              <span class="block font-medium text-slate-800">Continuous transfer mode</span>
+              <span class="mt-1 block text-xs text-slate-500">
+                Loop through all chunks repeatedly until you pause or reset the sender.
+              </span>
+            </span>
+          </label>
+        </div>
         <div class="mb-6 flex flex-wrap gap-3">
           <button
             v-if="transfer_controls.showPrimary"
@@ -96,6 +112,7 @@
           const next_chunk_index = ref(0);
           const total_chunks = ref(0);
           const qr_frame_delay_ms = ref(50);
+          const continuous_broadcast_enabled = ref(false);
           const initial_chunk_size = 250;
           const minimum_chunk_size = 1;
           const max_transfer_name_length = 60;
@@ -322,39 +339,58 @@
               await sleep(300);
             }
 
-            for (let i = next_chunk_index.value; i < prepared_transfer.total_chunks; i++) {
-              if (!is_transferring.value) {
-                next_chunk_index.value = i;
+            const continuous_mode = continuous_broadcast_enabled.value;
+
+            let cycle_start_index = next_chunk_index.value;
+            while (is_transferring.value) {
+              for (
+                let i = cycle_start_index;
+                i < prepared_transfer.total_chunks;
+                i++
+              ) {
+                if (!is_transferring.value) {
+                  next_chunk_index.value = i;
+                  return;
+                }
+
+                await sleep(qr_frame_delay_ms.value);
+                if (!is_transferring.value) {
+                  next_chunk_index.value = i;
+                  return;
+                }
+
+                let start = i * prepared_transfer.active_chunk_size;
+                let chunk = prepared_transfer.data_array.subarray(
+                  start,
+                  start + prepared_transfer.active_chunk_size
+                );
+                let encoded_data = encode_data(i, chunk);
+                let chunk_result = make_code_safe(encoded_data);
+                if (!chunk_result.ok) {
+                  user_message.value = "QR overflow detected. Please reset transfer.";
+                  reset_transfer(true);
+                  return;
+                }
+
+                next_chunk_index.value = i + 1;
+                user_message.value = `Sending chunk ${i + 1}/${prepared_transfer.total_chunks} ...`;
+              }
+
+              // Keep the final chunk visible long enough for scanners to capture it.
+              await sleep(getFinalChunkHoldMs(qr_frame_delay_ms.value));
+
+              if (!continuous_mode) {
+                user_message.value = "Data transfer complete";
+                clear_prepared_transfer();
                 return;
               }
 
-              await sleep(qr_frame_delay_ms.value);
-              if (!is_transferring.value) {
-                next_chunk_index.value = i;
-                return;
-              }
-
-              let start = i * prepared_transfer.active_chunk_size;
-              let chunk = prepared_transfer.data_array.subarray(
-                start,
-                start + prepared_transfer.active_chunk_size
-              );
-              let encoded_data = encode_data(i, chunk);
-              let chunk_result = make_code_safe(encoded_data);
-              if (!chunk_result.ok) {
-                user_message.value = "QR overflow detected. Please reset transfer.";
-                reset_transfer(true);
-                return;
-              }
-
-              next_chunk_index.value = i + 1;
-              user_message.value = `Sending chunk ${i + 1}/${prepared_transfer.total_chunks} ...`;
+              next_chunk_index.value = 0;
+              cycle_start_index = 0;
+              render_transfer_metadata("resume");
+              user_message.value = `Broadcast cycle complete. Re-sending all ${prepared_transfer.total_chunks} chunks for recovery ...`;
+              await sleep(120);
             }
-
-            // Keep the final chunk visible for at least one frame interval so scanners can capture it.
-            await sleep(getFinalChunkHoldMs(qr_frame_delay_ms.value));
-            user_message.value = "Data transfer complete";
-            clear_prepared_transfer();
           };
 
           const start_transfer = async () => {
@@ -400,6 +436,7 @@
             is_transferring,
             transfer_controls,
             qr_frame_delay_ms,
+            continuous_broadcast_enabled,
           };
         },
       }).mount("#app");

@@ -3,8 +3,6 @@ const assert = require("assert");
 const {
   findSupportedChunkSize,
   getTransferControls,
-} = require("./generator-helpers.js");
-const {
   getFinalChunkHoldMs,
 } = require("./generator-helpers.js");
 

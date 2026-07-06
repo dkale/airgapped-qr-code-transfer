@@ -135,8 +135,17 @@
                 } else if (decoded_data.split(",").length == 2) {
                   let raw_data = decode_data(decoded_data);
                   decoded_chunks.value[raw_data["index"]] = raw_data["data"];
-                  user_message.value = `Receiving ${file_metadata.name || "transfer"}: ${Object.keys(decoded_chunks.value).length} / ${file_metadata.chunks || "?"} chunks`;
-                  receiver_detail.value = `Latest chunk: ${raw_data.index + 1}`;
+                    let received_count = Object.keys(decoded_chunks.value).length;
+                    let total_chunks = file_metadata.chunks || 0;
+                    let missing_chunks = Math.max(total_chunks - received_count, 0);
+                    user_message.value = `Receiving ${file_metadata.name || "transfer"}: ${received_count} / ${total_chunks || "?"} chunks`;
+                    let latest_chunk_number = raw_data.index + 1;
+                    if (total_chunks > 0) {
+                      let sequential_gap = Math.max(latest_chunk_number - received_count, 0);
+                      receiver_detail.value = `Latest chunk: ${latest_chunk_number} • Missing so far: ${missing_chunks} • Out-of-order gap: ${sequential_gap}`;
+                    } else {
+                      receiver_detail.value = `Latest chunk: ${latest_chunk_number}`;
+                    }
                 }
                 window.decoded_chunks = decoded_chunks.value;
               } catch (error) {
