@@ -10,42 +10,52 @@
   <body>
     <div id="app">
       <div
-        class="flex flex-col items-start w-full items-center justify-center align-middle"
+        class="mx-auto flex min-h-screen w-full max-w-3xl flex-col items-center justify-center px-4 py-8"
       >
-        <div class="text-xl my-4">Data Receiver Mode</div>
-        <div class="text-sm mb-4">{{user_message}}</div>
-        <div class="text-sm mb-4">
+        <div class="w-full rounded-3xl border border-slate-200 bg-white p-6 shadow-xl shadow-slate-200/60">
+        <div class="text-2xl font-semibold text-slate-900 mb-2">Data Receiver Mode</div>
+        <div class="text-sm text-slate-600 mb-2">{{user_message}}</div>
+        <div class="text-sm font-medium text-slate-500 mb-4">{{receiver_detail}}</div>
+        <div class="text-sm mb-4 text-slate-700">
           Progress: {{Object.keys(decoded_chunks).length}} /
           {{file_metadata.chunks || 0}}
         </div>
         <button
           v-if="!is_receiving"
           v-on:click="start_receiver"
-          class="mb-6 p-1 border-2 border-gray-500"
+          class="mb-6 rounded-2xl bg-slate-900 px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-700"
         >
           Start Receiver
         </button>
         <button
           v-else
           v-on:click="stop_receiver"
-          class="mb-6 p-1 border-2 border-gray-500"
+          class="mb-6 rounded-2xl border border-slate-300 bg-white px-5 py-3 text-sm font-semibold text-slate-700 transition hover:border-slate-400 hover:bg-slate-50"
         >
           Stop Receiver
         </button>
-        <video id="videoElement" muted autoplay playsinline></video>
+        <video id="videoElement" class="w-full rounded-3xl bg-slate-950" muted autoplay playsinline></video>
+        </div>
       </div>
     </div>
     <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@undecaf/zbar-wasm@latest/dist/index.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pako/2.0.3/pako.min.js"></script>
+    <script src="./transfer-protocol.js"></script>
     <script>
-      const { createApp, ref, reactive, onMounted, computed } = Vue;
+      const { createApp, ref, reactive, onMounted } = Vue;
+      const {
+        describeReceiverStatus,
+        isTransferMetadataPayload,
+        parseTransferMetadata,
+        shouldResetDecodedChunks,
+      } = TransferProtocol;
 
       createApp({
         setup() {
           const user_message = ref("Click receive button to start receiving");
+          const receiver_detail = ref("Point the camera at the sender QR code");
           const decoded_chunks = ref({});
-          const total_chunks = ref(-1);
           const file_metadata = reactive({});
           const is_receiving = ref(false);
           let canvas, context, videoElement;
@@ -78,11 +88,16 @@
             URL.revokeObjectURL(url);
           };
 
+          const clear_file_metadata = () => {
+            Object.keys(file_metadata).forEach((key) => delete file_metadata[key]);
+          };
+
           const stop_receiver = () => {
             is_receiving.value = false;
             decoded_chunks.value = {};
-            Object.assign(file_metadata, {});
+            clear_file_metadata();
             user_message.value = "Click receive button to start receiving";
+            receiver_detail.value = "Point the camera at the sender QR code";
           };
 
           const start_receiver = async () => {
@@ -94,7 +109,7 @@
               try {
                 await new Promise((r) => setTimeout(r, 10));
                 context.drawImage(videoElement, 0, 0);
-                image_data = context.getImageData(
+                let image_data = context.getImageData(
                   0,
                   0,
                   canvas.width,
@@ -105,34 +120,45 @@
                   continue;
                 }
                 let decoded_data = symbols[0].decode();
-                if (decoded_data.includes("chunks")) {
-                  Object.assign(file_metadata, JSON.parse(decoded_data));
-                  decoded_chunks.value = {};
-                  user_message.value = `Transferring file: ${file_metadata.name}`;
+                if (isTransferMetadataPayload(decoded_data)) {
+                  let incoming_metadata = parseTransferMetadata(decoded_data);
+                  if (shouldResetDecodedChunks(file_metadata, incoming_metadata)) {
+                    decoded_chunks.value = {};
+                  }
+                  Object.keys(file_metadata).forEach((key) => delete file_metadata[key]);
+                  Object.assign(file_metadata, incoming_metadata);
+                  user_message.value = describeReceiverStatus({
+                    metadata: incoming_metadata,
+                    decodedChunkCount: Object.keys(decoded_chunks.value).length,
+                  });
+                  receiver_detail.value = `Transfer ${incoming_metadata.transfer_id} • ${incoming_metadata.name}`;
                 } else if (decoded_data.split(",").length == 2) {
                   let raw_data = decode_data(decoded_data);
                   decoded_chunks.value[raw_data["index"]] = raw_data["data"];
+                  user_message.value = `Receiving ${file_metadata.name || "transfer"}: ${Object.keys(decoded_chunks.value).length} / ${file_metadata.chunks || "?"} chunks`;
+                  receiver_detail.value = `Latest chunk: ${raw_data.index + 1}`;
                 }
                 window.decoded_chunks = decoded_chunks.value;
               } catch (error) {
                 console.error("Error in Loop: ", error);
               }
               if (!is_receiving.value) {
-                Object.assign(file_metadata, {});
+                clear_file_metadata();
                 decoded_chunks.value = {};
                 user_message.value = "Click receive button to start receiving";
+                receiver_detail.value = "Point the camera at the sender QR code";
                 return true;
               }
             }
             user_message.value = "Data Transfer Complete";
-            output_array = [];
+            let output_array = [];
             for (let i = 0; i < file_metadata.chunks; i++) {
               output_array = output_array.concat(decoded_chunks.value[i]);
             }
             let output_unit8array = Uint8Array.from(output_array);
             window.output_unit8array = output_unit8array;
-            let infalted_array = pako.inflate(window.output_unit8array);
-            download_file(infalted_array, file_metadata.name);
+            let inflated_array = pako.inflate(window.output_unit8array);
+            download_file(inflated_array, file_metadata.name);
             stop_receiver();
           };
 
@@ -152,6 +178,7 @@
 
           return {
             user_message,
+            receiver_detail,
             start_receiver,
             is_receiving,
             file_metadata,

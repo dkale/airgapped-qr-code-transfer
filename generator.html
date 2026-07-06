@@ -10,21 +10,29 @@
   <body>
     <div id="app">
       <div
-        class="flex flex-col items-start w-full items-center justify-center align-middle"
+        class="mx-auto flex min-h-screen w-full max-w-3xl flex-col items-center justify-center px-4 py-8"
       >
-        <div class="text-xl my-4">Data Sender Mode</div>
-        <div class="text-sm mb-4">{{user_message}}</div>
-        <div class="w-1/2 mb-4">
+        <div class="w-full rounded-3xl border border-slate-200 bg-white p-6 shadow-xl shadow-slate-200/60">
+          <div class="mb-6">
+            <div class="text-2xl font-semibold text-slate-900">Data Sender Mode</div>
+            <div class="mt-2 text-sm text-slate-600">{{user_message}}</div>
+            <div class="mt-1 text-sm font-medium text-slate-500">{{transfer_controls.progressLabel}}</div>
+          </div>
+        <div class="w-full mb-4">
           <input
-            class="block w-full text-sm text-gray-900 border border-gray-300 cursor-pointer bg-gray-50 focus:outline-none"
+            :disabled="is_preparing || is_transferring || has_prepared_transfer"
+            class="block w-full rounded-2xl border border-slate-300 bg-slate-50 px-4 py-3 text-sm text-slate-900 file:mr-4 file:rounded-xl file:border-0 file:bg-slate-900 file:px-4 file:py-2 file:text-sm file:font-medium file:text-white focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
             id="file_input"
             type="file"
           />
         </div>
-        <div class="w-1/2 mb-4">
-          <label for="qr_rate" class="block text-sm mb-1"
+        <div class="w-full mb-6">
+          <label for="qr_rate" class="mb-2 block text-sm font-medium text-slate-700"
             >QR frame delay: {{qr_frame_delay_ms}} ms</label
           >
+          <div class="mb-2 text-xs text-slate-500">
+            Delay changes apply from the next QR frame.
+          </div>
           <input
             id="qr_rate"
             type="range"
@@ -32,43 +40,79 @@
             max="500"
             step="10"
             v-model.number="qr_frame_delay_ms"
-            class="w-full"
+            :disabled="is_preparing"
+            class="w-full accent-slate-900 disabled:cursor-not-allowed disabled:opacity-60"
           />
         </div>
-        <button
-          v-if="!is_transferring"
-          v-on:click="start_transfer"
-          class="mb-6 p-1 border-2 border-gray-500"
-        >
-          Start Transfer
-        </button>
-        <button
-          v-else
-          v-on:click="stop_transfer"
-          class="mb-6 p-1 border-2 border-gray-500"
-        >
-          Stop Transfer
-        </button>
-        <div id="qrcode" class=""></div>
+        <div class="mb-6 flex flex-wrap gap-3">
+          <button
+            v-if="transfer_controls.showPrimary"
+            v-on:click="start_transfer"
+            :disabled="transfer_controls.primaryDisabled"
+            class="rounded-2xl bg-slate-900 px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:bg-slate-400"
+          >
+            {{transfer_controls.primaryLabel}}
+          </button>
+          <button
+            v-if="transfer_controls.showPause"
+            v-on:click="pause_transfer"
+            class="rounded-2xl bg-amber-400 px-5 py-3 text-sm font-semibold text-slate-900 transition hover:bg-amber-300"
+          >
+            Pause Transfer
+          </button>
+          <button
+            v-if="transfer_controls.showReset"
+            v-on:click="reset_transfer"
+            class="rounded-2xl border border-slate-300 bg-white px-5 py-3 text-sm font-semibold text-slate-700 transition hover:border-slate-400 hover:bg-slate-50"
+          >
+            Reset Transfer
+          </button>
+        </div>
+        <div id="qrcode" class="flex justify-center rounded-3xl bg-slate-50 p-4"></div>
+        </div>
       </div>
     </div>
     <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/pako/2.0.3/pako.min.js"></script>
     <script src="./generator-helpers.js"></script>
+    <script src="./transfer-protocol.js"></script>
     <script>
-      const { createApp, ref, onMounted } = Vue;
-      const { buildTransferName, findSupportedChunkSize } = GeneratorHelpers;
+      const { createApp, ref, computed, onMounted } = Vue;
+      const { buildTransferName, findSupportedChunkSize, getTransferControls } = GeneratorHelpers;
+      const { createTransferId, buildTransferMetadata } = TransferProtocol;
 
       createApp({
         setup() {
           const user_message = ref("Choose file to get started");
+          const is_preparing = ref(false);
           const is_transferring = ref(false);
+          const is_paused = ref(false);
+          const has_prepared_transfer = ref(false);
+          const next_chunk_index = ref(0);
+          const total_chunks = ref(0);
           const qr_frame_delay_ms = ref(50);
           const initial_chunk_size = 250;
           const minimum_chunk_size = 1;
           const max_transfer_name_length = 60;
           let qrcode_object = "";
+          let compression_worker = null;
+          let compression_request_id = 0;
+          let compression_request_handlers = new Map();
+          let prepared_transfer = null;
+
+          const sleep = (duration_ms) =>
+            new Promise((resolve) => setTimeout(resolve, duration_ms));
+
+          const transfer_controls = computed(() =>
+            getTransferControls({
+              hasPreparedTransfer: has_prepared_transfer.value,
+              isPreparing: is_preparing.value,
+              isTransferring: is_transferring.value,
+              isPaused: is_paused.value,
+              nextChunkIndex: next_chunk_index.value,
+              totalChunks: total_chunks.value,
+            })
+          );
 
           const encode_data = (index, input_bytes) => {
             let encoded_string = String.fromCharCode.apply(null, input_bytes);
@@ -78,6 +122,75 @@
               String.fromCharCode.apply(null, utf8_bytes)
             );
             return index + "," + encoded_data;
+          };
+
+          const ensure_compression_worker = () => {
+            if (compression_worker) {
+              return compression_worker;
+            }
+
+            compression_worker = new Worker("./generator-worker.js");
+            compression_worker.addEventListener("message", (event) => {
+              const { type, requestId, buffer, message } = event.data || {};
+              const handlers = compression_request_handlers.get(requestId);
+              if (!handlers) {
+                return;
+              }
+
+              compression_request_handlers.delete(requestId);
+
+              if (type === "compressed") {
+                handlers.resolve(new Uint8Array(buffer));
+                return;
+              }
+
+              handlers.reject(new Error(message || "Compression worker failed"));
+            });
+
+            compression_worker.addEventListener("error", (event) => {
+              compression_request_handlers.forEach(({ reject }) => {
+                reject(new Error(event.message || "Compression worker failed"));
+              });
+              compression_request_handlers.clear();
+            });
+
+            return compression_worker;
+          };
+
+          const compress_file = async (file) => {
+            const worker = ensure_compression_worker();
+            const buffer = await file.arrayBuffer();
+
+            return new Promise((resolve, reject) => {
+              const requestId = ++compression_request_id;
+              compression_request_handlers.set(requestId, { resolve, reject });
+              worker.postMessage(
+                {
+                  type: "compress",
+                  requestId,
+                  buffer,
+                },
+                [buffer]
+              );
+            });
+          };
+
+          const render_transfer_metadata = (status) => {
+            if (!prepared_transfer) {
+              return false;
+            }
+
+            return make_code_safe(
+              JSON.stringify(
+                buildTransferMetadata({
+                  transferId: prepared_transfer.transfer_id,
+                  name: prepared_transfer.file_name,
+                  totalChunks: prepared_transfer.total_chunks,
+                  status,
+                  nextChunkIndex: next_chunk_index.value,
+                })
+              )
+            ).ok;
           };
 
           const make_code_safe = (payload) => {
@@ -97,35 +210,65 @@
             }
           };
 
-          const stop_transfer = (preserve_message = false) => {
+          const clear_prepared_transfer = () => {
+            prepared_transfer = null;
+            has_prepared_transfer.value = false;
+            is_preparing.value = false;
             is_transferring.value = false;
+            is_paused.value = false;
+            next_chunk_index.value = 0;
+            total_chunks.value = 0;
+          };
+
+          const reset_transfer = (preserve_message = false) => {
+            clear_prepared_transfer();
             if (!preserve_message) {
               user_message.value = "Choose file to get started";
             }
+            make_code_safe("Choose file to get started");
           };
 
-          const start_transfer = async () => {
-            let file_input = document.getElementById("file_input");
-            let file = file_input.files[0];
-            if (!file) {
-              user_message.value = "Please choose a file before starting transfer";
+          const pause_transfer = () => {
+            if (!is_transferring.value) {
               return;
             }
-            is_transferring.value = true;
+            is_transferring.value = false;
+            is_paused.value = true;
+            render_transfer_metadata("paused");
+            user_message.value = "Transfer paused. Resume when the receiver is ready.";
+          };
+
+          const prepare_transfer = async (file) => {
+            is_preparing.value = true;
+            is_paused.value = false;
             user_message.value = "Preparing file for transfer ...";
-            await new Promise((r) => setTimeout(r, 0));
-            let data_array = pako.gzip(await file.arrayBuffer(), { level: 9 });
+            await sleep(0);
+
+            let data_array;
+            try {
+              data_array = await compress_file(file);
+            } catch (error) {
+              is_preparing.value = false;
+              user_message.value = "Unable to prepare file for transfer.";
+              reset_transfer(true);
+              return false;
+            }
             let transfer_name = buildTransferName(file.name, max_transfer_name_length);
+            let transfer_id = createTransferId();
             let transfer_plan = findSupportedChunkSize({
               dataLength: data_array.length,
               initialChunkSize: initial_chunk_size,
               minimumChunkSize: minimum_chunk_size,
               canRenderMetadata: (metadata_payload) => make_code_safe(JSON.stringify(metadata_payload)).ok,
               canRenderChunk: (chunk_payload) => make_code_safe(chunk_payload).ok,
-              buildMetadata: ({ totalChunks }) => ({
-                name: transfer_name,
-                chunks: totalChunks,
-              }),
+              buildMetadata: ({ totalChunks }) =>
+                buildTransferMetadata({
+                  transferId: transfer_id,
+                  name: transfer_name,
+                  totalChunks,
+                  status: "ready",
+                  nextChunkIndex: 0,
+                }),
               buildChunkPayload: ({ chunkIndex, chunkSize }) => {
                 let start = chunkIndex * chunkSize;
                 let chunk = data_array.subarray(start, start + chunkSize);
@@ -136,38 +279,94 @@
             if (!transfer_plan) {
               user_message.value =
                 "Unable to fit this file into QR chunks. Try a smaller file.";
-              stop_transfer(true);
-              make_code_safe("Choose file to get started");
+              reset_transfer(true);
+              return false;
+            }
+
+            prepared_transfer = {
+              transfer_id,
+              data_array,
+              active_chunk_size: transfer_plan.chunkSize,
+              file_name: transfer_name,
+              total_chunks: transfer_plan.totalChunks,
+            };
+            has_prepared_transfer.value = true;
+            total_chunks.value = transfer_plan.totalChunks;
+            next_chunk_index.value = 0;
+            user_message.value = `Ready to send ${transfer_plan.totalChunks} chunks.`;
+            is_preparing.value = false;
+            render_transfer_metadata("ready");
+            return true;
+          };
+
+          const run_transfer = async () => {
+            if (!prepared_transfer) {
               return;
             }
 
-            let active_chunk_size = transfer_plan.chunkSize;
-            let total_chunks = transfer_plan.totalChunks;
-            let file_metadata = { name: transfer_name, chunks: total_chunks };
-            make_code_safe(JSON.stringify(file_metadata));
-            user_message.value = "Starting data transfer in few seconds ...";
-            await new Promise((r) => setTimeout(r, 1000));
-            for (let i = 0; i < total_chunks; i++) {
-              await new Promise((r) => setTimeout(r, qr_frame_delay_ms.value));
-              let start = i * active_chunk_size;
-              let chunk = data_array.subarray(start, start + active_chunk_size);
+            is_transferring.value = true;
+            is_paused.value = false;
+            render_transfer_metadata(
+              next_chunk_index.value === 0 ? "ready" : "resume"
+            );
+            if (next_chunk_index.value === 0) {
+              user_message.value = "Starting data transfer in a few seconds ...";
+              await sleep(1000);
+            } else {
+              user_message.value = `Resuming transfer at chunk ${next_chunk_index.value + 1}/${prepared_transfer.total_chunks} ...`;
+              await sleep(300);
+            }
+
+            for (let i = next_chunk_index.value; i < prepared_transfer.total_chunks; i++) {
+              if (!is_transferring.value) {
+                next_chunk_index.value = i;
+                return;
+              }
+
+              await sleep(qr_frame_delay_ms.value);
+              if (!is_transferring.value) {
+                next_chunk_index.value = i;
+                return;
+              }
+
+              let start = i * prepared_transfer.active_chunk_size;
+              let chunk = prepared_transfer.data_array.subarray(
+                start,
+                start + prepared_transfer.active_chunk_size
+              );
               let encoded_data = encode_data(i, chunk);
               let chunk_result = make_code_safe(encoded_data);
               if (!chunk_result.ok) {
-                user_message.value = "QR overflow detected. Please restart transfer.";
-                stop_transfer(true);
-                make_code_safe("Choose file to get started");
+                user_message.value = "QR overflow detected. Please reset transfer.";
+                reset_transfer(true);
                 return;
               }
-              user_message.value = `Transfering Chunk ${i + 1}/${total_chunks} ...`;
-              if (!is_transferring.value) {
-                user_message.value = "Choose file to get started";
-                make_code_safe("Choose file to get started");
-                break;
+
+              next_chunk_index.value = i + 1;
+              user_message.value = `Sending chunk ${i + 1}/${prepared_transfer.total_chunks} ...`;
+            }
+
+            user_message.value = "Data transfer complete";
+            make_code_safe("Transfer complete");
+            clear_prepared_transfer();
+          };
+
+          const start_transfer = async () => {
+            if (!has_prepared_transfer.value) {
+              let file_input = document.getElementById("file_input");
+              let file = file_input.files[0];
+              if (!file) {
+                user_message.value = "Please choose a file before starting transfer";
+                return;
+              }
+
+              let prepared = await prepare_transfer(file);
+              if (!prepared) {
+                return;
               }
             }
-            user_message.value = "Data transfer complete";
-            stop_transfer(true);
+
+            await run_transfer();
           };
 
           onMounted(() => {
@@ -186,10 +385,14 @@
           });
 
           return {
+            has_prepared_transfer,
+            is_preparing,
             user_message,
+            pause_transfer,
+            reset_transfer,
             start_transfer,
-            stop_transfer,
             is_transferring,
+            transfer_controls,
             qr_frame_delay_ms,
           };
         },

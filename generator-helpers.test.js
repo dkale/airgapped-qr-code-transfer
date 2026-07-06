@@ -1,6 +1,9 @@
 const assert = require("assert");
 
-const { findSupportedChunkSize } = require("./generator-helpers.js");
+const {
+  findSupportedChunkSize,
+  getTransferControls,
+} = require("./generator-helpers.js");
 
 (() => {
   let metadataChecks = 0;
@@ -23,6 +26,46 @@ const { findSupportedChunkSize } = require("./generator-helpers.js");
   assert.deepStrictEqual(result, { chunkSize: 250, totalChunks: 20 });
   assert.strictEqual(metadataChecks, 1);
   assert.strictEqual(chunkChecks, 1);
+})();
+
+(() => {
+  assert.deepStrictEqual(
+    getTransferControls({
+      hasPreparedTransfer: false,
+      isPreparing: false,
+      isTransferring: false,
+      isPaused: false,
+      nextChunkIndex: 0,
+      totalChunks: 0,
+    }),
+    {
+      primaryLabel: "Prepare & Start Transfer",
+      primaryDisabled: false,
+      showPrimary: true,
+      showPause: false,
+      showReset: false,
+      progressLabel: "No transfer in progress",
+    }
+  );
+
+  assert.deepStrictEqual(
+    getTransferControls({
+      hasPreparedTransfer: true,
+      isPreparing: false,
+      isTransferring: false,
+      isPaused: true,
+      nextChunkIndex: 8,
+      totalChunks: 20,
+    }),
+    {
+      primaryLabel: "Resume Transfer",
+      primaryDisabled: false,
+      showPrimary: true,
+      showPause: false,
+      showReset: true,
+      progressLabel: "Paused at chunk 9 of 20",
+    }
+  );
 })();
 
 console.log("generator-helpers.test.js passed");
