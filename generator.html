@@ -21,6 +21,20 @@
             type="file"
           />
         </div>
+        <div class="w-1/2 mb-4">
+          <label for="qr_rate" class="block text-sm mb-1"
+            >QR frame delay: {{qr_frame_delay_ms}} ms</label
+          >
+          <input
+            id="qr_rate"
+            type="range"
+            min="20"
+            max="500"
+            step="10"
+            v-model.number="qr_frame_delay_ms"
+            class="w-full"
+          />
+        </div>
         <button
           v-if="!is_transferring"
           v-on:click="start_transfer"
@@ -41,14 +55,19 @@
     <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pako/2.0.3/pako.min.js"></script>
+    <script src="./generator-helpers.js"></script>
     <script>
       const { createApp, ref, onMounted } = Vue;
+      const { buildTransferName, findSupportedChunkSize } = GeneratorHelpers;
 
       createApp({
         setup() {
           const user_message = ref("Choose file to get started");
           const is_transferring = ref(false);
-          const chunk_size = 250;
+          const qr_frame_delay_ms = ref(50);
+          const initial_chunk_size = 250;
+          const minimum_chunk_size = 1;
+          const max_transfer_name_length = 60;
           let qrcode_object = "";
 
           const encode_data = (index, input_bytes) => {
@@ -61,39 +80,94 @@
             return index + "," + encoded_data;
           };
 
-          const stop_transfer = () => {
+          const make_code_safe = (payload) => {
+            try {
+              qrcode_object.clear();
+              qrcode_object.makeCode(payload);
+              return { ok: true };
+            } catch (error) {
+              if (
+                error &&
+                typeof error.message === "string" &&
+                error.message.includes("code length overflow")
+              ) {
+                return { ok: false, overflow: true };
+              }
+              throw error;
+            }
+          };
+
+          const stop_transfer = (preserve_message = false) => {
             is_transferring.value = false;
-            user_message.value = "Choose file to get started";
+            if (!preserve_message) {
+              user_message.value = "Choose file to get started";
+            }
           };
 
           const start_transfer = async () => {
             let file_input = document.getElementById("file_input");
-            is_transferring.value = true;
             let file = file_input.files[0];
-            let data_chunks = [];
+            if (!file) {
+              user_message.value = "Please choose a file before starting transfer";
+              return;
+            }
+            is_transferring.value = true;
+            user_message.value = "Preparing file for transfer ...";
+            await new Promise((r) => setTimeout(r, 0));
             let data_array = pako.gzip(await file.arrayBuffer(), { level: 9 });
-            let total_chunks = Math.ceil(data_array.length / chunk_size);
-            let file_metadata = { name: file.name, chunks: total_chunks };
-            qrcode_object.clear();
-            qrcode_object.makeCode(JSON.stringify(file_metadata));
+            let transfer_name = buildTransferName(file.name, max_transfer_name_length);
+            let transfer_plan = findSupportedChunkSize({
+              dataLength: data_array.length,
+              initialChunkSize: initial_chunk_size,
+              minimumChunkSize: minimum_chunk_size,
+              canRenderMetadata: (metadata_payload) => make_code_safe(JSON.stringify(metadata_payload)).ok,
+              canRenderChunk: (chunk_payload) => make_code_safe(chunk_payload).ok,
+              buildMetadata: ({ totalChunks }) => ({
+                name: transfer_name,
+                chunks: totalChunks,
+              }),
+              buildChunkPayload: ({ chunkIndex, chunkSize }) => {
+                let start = chunkIndex * chunkSize;
+                let chunk = data_array.subarray(start, start + chunkSize);
+                return encode_data(chunkIndex, chunk);
+              },
+            });
+
+            if (!transfer_plan) {
+              user_message.value =
+                "Unable to fit this file into QR chunks. Try a smaller file.";
+              stop_transfer(true);
+              make_code_safe("Choose file to get started");
+              return;
+            }
+
+            let active_chunk_size = transfer_plan.chunkSize;
+            let total_chunks = transfer_plan.totalChunks;
+            let file_metadata = { name: transfer_name, chunks: total_chunks };
+            make_code_safe(JSON.stringify(file_metadata));
             user_message.value = "Starting data transfer in few seconds ...";
             await new Promise((r) => setTimeout(r, 1000));
             for (let i = 0; i < total_chunks; i++) {
-              await new Promise((r) => setTimeout(r, 50));
-              let start = i * chunk_size;
-              let chunk = data_array.subarray(start, start + chunk_size);
+              await new Promise((r) => setTimeout(r, qr_frame_delay_ms.value));
+              let start = i * active_chunk_size;
+              let chunk = data_array.subarray(start, start + active_chunk_size);
               let encoded_data = encode_data(i, chunk);
-              qrcode_object.clear();
-              qrcode_object.makeCode(encoded_data);
-              user_message.value = `Transfering Chunk ${i}/${total_chunks} ...`;
+              let chunk_result = make_code_safe(encoded_data);
+              if (!chunk_result.ok) {
+                user_message.value = "QR overflow detected. Please restart transfer.";
+                stop_transfer(true);
+                make_code_safe("Choose file to get started");
+                return;
+              }
+              user_message.value = `Transfering Chunk ${i + 1}/${total_chunks} ...`;
               if (!is_transferring.value) {
                 user_message.value = "Choose file to get started";
-                qrcode_object.clear();
-                qrcode_object.makeCode("Choose file to get started");
+                make_code_safe("Choose file to get started");
                 break;
               }
             }
-            stop_transfer();
+            user_message.value = "Data transfer complete";
+            stop_transfer(true);
           };
 
           onMounted(() => {
@@ -116,6 +190,7 @@
             start_transfer,
             stop_transfer,
             is_transferring,
+            qr_frame_delay_ms,
           };
         },
       }).mount("#app");
