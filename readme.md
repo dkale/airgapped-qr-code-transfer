@@ -2,18 +2,18 @@
 
 Airgapped QR Code Transfer is a simple web-based tool to transfer data between devices using QR codes. It allows for the transfer of files without the need for network connectivity, leveraging QR codes to encode and decode file data. This project uses Vue.js for the frontend and libraries like pako for compression, qrcode.js for QR code generation, and zbar-wasm for QR code scanning.
 
-My Repository: <a href="https://dkale/github/io/airgapped-qr-code-transfer/" target="_blank">https://dkale/github/io/airgapped-qr-code-transfer/</a>
+My Repository: <a href="https://dkale.github.io/airgapped-qr-code-transfer/" target="_blank">https://dkale/github/io/airgapped-qr-code-transfer/</a>
 
 [![Open in Flexpilot AI Web IDE](https://badges.flexpilot.ai/open-in-web-ide.svg)](https://flexpilot.ai/web-ide-redirect?provider=github&owner=mohankumarelec&repo=airgapped-qr-code-transfer&branch=master)
 
 ## Live Online Demo
 
 1. **Receiver Setup:**
-   - Open <a href="https://dkale/github/io/airgapped-qr-code-transfer/scanner" target="_blank">scanner.html</a> in the receiver's browser.
+   - Open <a href="https://dkale.github.io/airgapped-qr-code-transfer/scanner" target="_blank">scanner.html</a> in the receiver's browser.
    - Allow access to the camera for scanning.
 
 2. **Sender Setup:**
-   - Open <a href="https://dkale/github/io/airgapped-qr-code-transfer/generator" target="_blank">generator.html</a> in the sender's browser.
+   - Open <a href="https://dkale.github.io/airgapped-qr-code-transfer/generator" target="_blank">generator.html</a> in the sender's browser.
    - Upload the file that needs to be transferred.
 
 3. **Transfer Process:**
