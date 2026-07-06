@@ -78,7 +78,12 @@
     <script src="./transfer-protocol.js"></script>
     <script>
       const { createApp, ref, computed, onMounted } = Vue;
-      const { buildTransferName, findSupportedChunkSize, getTransferControls } = GeneratorHelpers;
+      const {
+        buildTransferName,
+        findSupportedChunkSize,
+        getTransferControls,
+        getFinalChunkHoldMs,
+      } = GeneratorHelpers;
       const { createTransferId, buildTransferMetadata } = TransferProtocol;
 
       createApp({
@@ -346,8 +351,9 @@
               user_message.value = `Sending chunk ${i + 1}/${prepared_transfer.total_chunks} ...`;
             }
 
+            // Keep the final chunk visible for at least one frame interval so scanners can capture it.
+            await sleep(getFinalChunkHoldMs(qr_frame_delay_ms.value));
             user_message.value = "Data transfer complete";
-            make_code_safe("Transfer complete");
             clear_prepared_transfer();
           };
 

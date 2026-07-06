@@ -141,10 +141,14 @@
     };
   };
 
+  const getFinalChunkHoldMs = (frameDelayMs) =>
+    Math.max(120, Number(frameDelayMs) || 0);
+
   const api = {
     buildTransferName,
     findSupportedChunkSize,
     getTransferControls,
+    getFinalChunkHoldMs,
   };
 
   if (typeof module !== "undefined" && module.exports) {

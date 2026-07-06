@@ -4,6 +4,9 @@ const {
   findSupportedChunkSize,
   getTransferControls,
 } = require("./generator-helpers.js");
+const {
+  getFinalChunkHoldMs,
+} = require("./generator-helpers.js");
 
 (() => {
   let metadataChecks = 0;
@@ -66,6 +69,9 @@ const {
       progressLabel: "Paused at chunk 9 of 20",
     }
   );
+  // The last chunk must remain visible long enough for the scanner to capture it.
+  assert.strictEqual(getFinalChunkHoldMs(50), 120);
+  assert.strictEqual(getFinalChunkHoldMs(180), 180);
 })();
 
 console.log("generator-helpers.test.js passed");
