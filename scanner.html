@@ -20,20 +20,40 @@
           Progress: {{Object.keys(decoded_chunks).length}} /
           {{file_metadata.chunks || 0}}
         </div>
-        <button
-          v-if="!is_receiving"
-          v-on:click="start_receiver"
-          class="mb-6 rounded-2xl bg-slate-900 px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-700"
-        >
-          Start Receiver
-        </button>
-        <button
-          v-else
-          v-on:click="stop_receiver"
-          class="mb-6 rounded-2xl border border-slate-300 bg-white px-5 py-3 text-sm font-semibold text-slate-700 transition hover:border-slate-400 hover:bg-slate-50"
-        >
-          Stop Receiver
-        </button>
+        <div class="mb-6 flex flex-wrap gap-3">
+          <button
+            v-if="!is_receiving && !is_paused"
+            v-on:click="start_receiver"
+            class="rounded-2xl bg-slate-900 px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-700"
+          >
+            Start Receiver
+          </button>
+          <button
+            v-if="!is_receiving && is_paused"
+            v-on:click="start_receiver"
+            class="rounded-2xl bg-slate-900 px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-700"
+          >
+            Resume Receiver
+          </button>
+          <button
+            v-if="is_receiving"
+            v-on:click="pause_receiver"
+            class="rounded-2xl bg-amber-400 px-5 py-3 text-sm font-semibold text-slate-900 transition hover:bg-amber-300"
+          >
+            Pause and Review
+          </button>
+          <button
+            v-if="is_receiving"
+            v-on:click="stop_receiver"
+            class="rounded-2xl border border-slate-300 bg-white px-5 py-3 text-sm font-semibold text-slate-700 transition hover:border-slate-400 hover:bg-slate-50"
+          >
+            Stop Receiver
+          </button>
+        </div>
+        <div v-if="missing_chunk_summary" class="mb-4 rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">
+          <div class="font-semibold text-slate-800">Missing chunk indexes</div>
+          <div class="mt-1">{{missing_chunk_summary}}</div>
+        </div>
         <video id="videoElement" class="w-full rounded-3xl bg-slate-950" muted autoplay playsinline></video>
         </div>
       </div>
@@ -41,6 +61,7 @@
     <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@undecaf/zbar-wasm@latest/dist/index.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pako/2.0.3/pako.min.js"></script>
+    <script src="./generator-helpers.js"></script>
     <script src="./transfer-protocol.js"></script>
     <script>
       const { createApp, ref, reactive, onMounted } = Vue;
@@ -50,6 +71,7 @@
         parseTransferMetadata,
         shouldResetDecodedChunks,
       } = TransferProtocol;
+      const { getMissingChunkSummary } = GeneratorHelpers;
 
       createApp({
         setup() {
@@ -58,6 +80,8 @@
           const decoded_chunks = ref({});
           const file_metadata = reactive({});
           const is_receiving = ref(false);
+          const is_paused = ref(false);
+          const missing_chunk_summary = ref("");
           let canvas, context, videoElement;
 
           const decode_data = (input_string) => {
@@ -92,17 +116,45 @@
             Object.keys(file_metadata).forEach((key) => delete file_metadata[key]);
           };
 
+          const pause_receiver = () => {
+            const totalChunks = Number(file_metadata.chunks || 0);
+            if (!is_receiving.value || totalChunks <= 0) {
+              return;
+            }
+
+            const receivedIndexes = Object.keys(decoded_chunks.value)
+              .map((value) => Number(value))
+              .filter((value) => Number.isInteger(value));
+            missing_chunk_summary.value = getMissingChunkSummary({
+              totalChunks,
+              receivedIndexes,
+            });
+            is_receiving.value = false;
+            is_paused.value = true;
+            user_message.value = "Receiver paused. Review the missing chunk indexes below.";
+            receiver_detail.value = "Paused for review";
+          };
+
           const stop_receiver = () => {
             is_receiving.value = false;
+            is_paused.value = false;
             decoded_chunks.value = {};
             clear_file_metadata();
+            missing_chunk_summary.value = "";
             user_message.value = "Click receive button to start receiving";
             receiver_detail.value = "Point the camera at the sender QR code";
           };
 
           const start_receiver = async () => {
-            decoded_chunks.value = {};
-            is_receiving.value = true;
+            if (!is_receiving.value && is_paused.value) {
+              is_paused.value = false;
+              is_receiving.value = true;
+            } else {
+              decoded_chunks.value = {};
+              missing_chunk_summary.value = "";
+              is_paused.value = false;
+              is_receiving.value = true;
+            }
             while (
               file_metadata.chunks != Object.keys(decoded_chunks.value).length
             ) {
@@ -190,9 +242,12 @@
             receiver_detail,
             start_receiver,
             is_receiving,
+            is_paused,
             file_metadata,
             decoded_chunks,
+            missing_chunk_summary,
             stop_receiver,
+            pause_receiver,
           };
         },
       }).mount("#app");

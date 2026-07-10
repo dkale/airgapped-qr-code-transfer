@@ -144,11 +144,140 @@
   const getFinalChunkHoldMs = (frameDelayMs) =>
     Math.max(120, Number(frameDelayMs) || 0);
 
+  const parseRecoveryIndexes = (input, totalChunks) => {
+    if (typeof input !== "string") {
+      return { ok: false, error: "Please enter a list of chunk indexes or ranges." };
+    }
+
+    const trimmed = input.trim();
+    if (!trimmed) {
+      return { ok: false, error: "Please enter at least one chunk index or range." };
+    }
+
+    const tokens = trimmed.split(",").map((token) => token.trim()).filter(Boolean);
+    if (!tokens.length) {
+      return { ok: false, error: "Please enter at least one chunk index or range." };
+    }
+
+    const seen = new Set();
+    const indexes = [];
+
+    for (const token of tokens) {
+      const rangeMatch = token.match(/^(\d+)-(\d+)$/);
+      if (rangeMatch) {
+        const start = Number(rangeMatch[1]);
+        const end = Number(rangeMatch[2]);
+        if (start > end) {
+          return {
+            ok: false,
+            error: "Ranges must be entered as start-end with the start value coming first.",
+          };
+        }
+        for (let index = start; index <= end; index += 1) {
+          if (index < 0 || index >= totalChunks) {
+            return {
+              ok: false,
+              error: `Chunk index ${index} is outside the valid range 0-${Math.max(totalChunks - 1, 0)}.`,
+            };
+          }
+          if (seen.has(index)) {
+            return {
+              ok: false,
+              error: `Duplicate chunk index ${index} detected.`,
+            };
+          }
+          seen.add(index);
+          indexes.push(index);
+        }
+        continue;
+      }
+
+      const singleValueMatch = token.match(/^\d+$/);
+      if (!singleValueMatch) {
+        return {
+          ok: false,
+          error: "Please enter only whole numbers or ranges like 5-12.",
+        };
+      }
+
+      const index = Number(token);
+      if (index < 0 || index >= totalChunks) {
+        return {
+          ok: false,
+          error: `Chunk index ${index} is outside the valid range 0-${Math.max(totalChunks - 1, 0)}.`,
+        };
+      }
+      if (seen.has(index)) {
+        return {
+          ok: false,
+          error: `Duplicate chunk index ${index} detected.`,
+        };
+      }
+      seen.add(index);
+      indexes.push(index);
+    }
+
+    return { ok: true, indexes };
+  };
+
+  const formatRecoveryIndexes = (indexes) => {
+    if (!Array.isArray(indexes) || !indexes.length) {
+      return "";
+    }
+
+    const sortedIndexes = [...indexes].sort((left, right) => left - right);
+    const parts = [];
+    let start = sortedIndexes[0];
+    let previous = sortedIndexes[0];
+
+    for (let i = 1; i < sortedIndexes.length; i += 1) {
+      const current = sortedIndexes[i];
+      if (current === previous + 1) {
+        previous = current;
+        continue;
+      }
+
+      if (start === previous) {
+        parts.push(String(start));
+      } else {
+        parts.push(`${start}-${previous}`);
+      }
+      start = current;
+      previous = current;
+    }
+
+    if (start === previous) {
+      parts.push(String(start));
+    } else {
+      parts.push(`${start}-${previous}`);
+    }
+
+    return parts.join(", ");
+  };
+
+  const getMissingChunkSummary = ({ totalChunks, receivedIndexes }) => {
+    if (!Number.isInteger(totalChunks) || totalChunks <= 0) {
+      return "";
+    }
+
+    const receivedSet = new Set(Array.isArray(receivedIndexes) ? receivedIndexes : []);
+    const missingIndexes = [];
+    for (let index = 0; index < totalChunks; index += 1) {
+      if (!receivedSet.has(index)) {
+        missingIndexes.push(index);
+      }
+    }
+    return formatRecoveryIndexes(missingIndexes);
+  };
+
   const api = {
     buildTransferName,
     findSupportedChunkSize,
     getTransferControls,
     getFinalChunkHoldMs,
+    parseRecoveryIndexes,
+    formatRecoveryIndexes,
+    getMissingChunkSummary,
   };
 
   if (typeof module !== "undefined" && module.exports) {

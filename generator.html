@@ -84,6 +84,29 @@
             Reset Transfer
           </button>
         </div>
+        <div v-if="has_prepared_transfer || is_paused || is_transferring" class="mb-6 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+          <div class="mb-2 text-sm font-semibold text-slate-800">Replay missed chunks</div>
+          <div class="mb-3 text-xs text-slate-500">
+            Enter missing chunk indexes or ranges, for example: 5, 22, 35-60
+          </div>
+          <div class="flex flex-col gap-2 sm:flex-row">
+            <input
+              v-model="recovery_input"
+              :disabled="is_preparing"
+              placeholder="e.g. 5, 22, 35-60"
+              class="flex-1 rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm text-slate-900 focus:outline-none"
+            />
+            <button
+              v-on:click="submit_recovery_indexes"
+              :disabled="!recovery_input.trim() || is_preparing"
+              class="rounded-2xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:bg-slate-400"
+            >
+              Submit Recovery
+            </button>
+          </div>
+          <div v-if="recovery_error" class="mt-2 text-sm text-rose-600">{{recovery_error}}</div>
+          <div v-else-if="recovery_success" class="mt-2 text-sm text-emer-600">{{recovery_success}}</div>
+        </div>
         <div id="qrcode" class="flex justify-center rounded-3xl bg-slate-50 p-4"></div>
         </div>
       </div>
@@ -99,6 +122,7 @@
         findSupportedChunkSize,
         getTransferControls,
         getFinalChunkHoldMs,
+        parseRecoveryIndexes,
       } = GeneratorHelpers;
       const { createTransferId, buildTransferMetadata } = TransferProtocol;
 
@@ -113,6 +137,9 @@
           const total_chunks = ref(0);
           const qr_frame_delay_ms = ref(50);
           const continuous_broadcast_enabled = ref(false);
+          const recovery_input = ref("");
+          const recovery_error = ref("");
+          const recovery_success = ref("");
           const initial_chunk_size = 250;
           const minimum_chunk_size = 1;
           const max_transfer_name_length = 60;
@@ -244,6 +271,9 @@
 
           const reset_transfer = (preserve_message = false) => {
             clear_prepared_transfer();
+            recovery_input.value = "";
+            recovery_error.value = "";
+            recovery_success.value = "";
             if (!preserve_message) {
               user_message.value = "Choose file to get started";
             }
@@ -258,6 +288,37 @@
             is_paused.value = true;
             render_transfer_metadata("paused");
             user_message.value = "Transfer paused. Resume when the receiver is ready.";
+          };
+
+          const submit_recovery_indexes = async () => {
+            if (!prepared_transfer) {
+              recovery_error.value = "Prepare a transfer before entering recovery indexes.";
+              return;
+            }
+
+            const parsed = parseRecoveryIndexes(
+              recovery_input.value,
+              prepared_transfer.total_chunks
+            );
+            if (!parsed.ok) {
+              recovery_error.value = parsed.error;
+              recovery_success.value = "";
+              return;
+            }
+
+            recovery_error.value = "";
+            recovery_success.value = `Recovery list accepted for ${parsed.indexes.length} chunk(s).`;
+            is_transferring.value = false;
+            is_paused.value = true;
+            next_chunk_index.value = 0;
+            prepared_transfer.recovery_indexes = parsed.indexes;
+            prepared_transfer.recovery_mode = true;
+            render_transfer_metadata("paused");
+            user_message.value = "Recovery list prepared. Starting replay of the selected chunks.";
+
+            if (!is_preparing.value) {
+              await run_transfer();
+            }
           };
 
           const prepare_transfer = async (file) => {
@@ -311,6 +372,8 @@
               active_chunk_size: transfer_plan.chunkSize,
               file_name: transfer_name,
               total_chunks: transfer_plan.totalChunks,
+              recovery_indexes: [],
+              recovery_mode: false,
             };
             has_prepared_transfer.value = true;
             total_chunks.value = transfer_plan.totalChunks;
@@ -340,31 +403,32 @@
             }
 
             const continuous_mode = continuous_broadcast_enabled.value;
+            const recovery_mode =
+              prepared_transfer.recovery_mode && prepared_transfer.recovery_indexes.length > 0;
+            const playback_indexes = recovery_mode
+              ? prepared_transfer.recovery_indexes
+              : Array.from({ length: prepared_transfer.total_chunks }, (_, index) => index);
 
-            let cycle_start_index = next_chunk_index.value;
             while (is_transferring.value) {
-              for (
-                let i = cycle_start_index;
-                i < prepared_transfer.total_chunks;
-                i++
-              ) {
+              for (let i = 0; i < playback_indexes.length; i += 1) {
+                const chunk_index = playback_indexes[i];
                 if (!is_transferring.value) {
-                  next_chunk_index.value = i;
+                  next_chunk_index.value = chunk_index;
                   return;
                 }
 
                 await sleep(qr_frame_delay_ms.value);
                 if (!is_transferring.value) {
-                  next_chunk_index.value = i;
+                  next_chunk_index.value = chunk_index;
                   return;
                 }
 
-                let start = i * prepared_transfer.active_chunk_size;
+                let start = chunk_index * prepared_transfer.active_chunk_size;
                 let chunk = prepared_transfer.data_array.subarray(
                   start,
                   start + prepared_transfer.active_chunk_size
                 );
-                let encoded_data = encode_data(i, chunk);
+                let encoded_data = encode_data(chunk_index, chunk);
                 let chunk_result = make_code_safe(encoded_data);
                 if (!chunk_result.ok) {
                   user_message.value = "QR overflow detected. Please reset transfer.";
@@ -372,11 +436,10 @@
                   return;
                 }
 
-                next_chunk_index.value = i + 1;
-                user_message.value = `Sending chunk ${i + 1}/${prepared_transfer.total_chunks} ...`;
+                next_chunk_index.value = chunk_index + 1;
+                user_message.value = `Sending chunk ${chunk_index + 1}/${prepared_transfer.total_chunks} ...`;
               }
 
-              // Keep the final chunk visible long enough for scanners to capture it.
               await sleep(getFinalChunkHoldMs(qr_frame_delay_ms.value));
 
               if (!continuous_mode) {
@@ -386,10 +449,13 @@
               }
 
               next_chunk_index.value = 0;
-              cycle_start_index = 0;
               render_transfer_metadata("resume");
               user_message.value = `Broadcast cycle complete. Re-sending all ${prepared_transfer.total_chunks} chunks for recovery ...`;
               await sleep(120);
+            }
+
+            if (recovery_mode) {
+              prepared_transfer.recovery_mode = false;
             }
           };
 
@@ -429,14 +495,19 @@
           return {
             has_prepared_transfer,
             is_preparing,
-            user_message,
-            pause_transfer,
-            reset_transfer,
-            start_transfer,
+            is_paused,
             is_transferring,
+            user_message,
             transfer_controls,
             qr_frame_delay_ms,
             continuous_broadcast_enabled,
+            recovery_input,
+            recovery_error,
+            recovery_success,
+            pause_transfer,
+            reset_transfer,
+            start_transfer,
+            submit_recovery_indexes,
           };
         },
       }).mount("#app");
