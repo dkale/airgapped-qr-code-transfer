@@ -10,15 +10,15 @@
   <body>
     <div id="app">
       <div
-        class="mx-auto flex min-h-screen w-full max-w-3xl flex-col items-center justify-center px-4 py-8"
+        class="mx-auto flex min-h-screen w-full max-w-5xl flex-col items-center justify-center px-3 py-3 sm:px-4 sm:py-4"
       >
-        <div class="w-full rounded-3xl border border-slate-200 bg-white p-6 shadow-xl shadow-slate-200/60">
-          <div class="mb-6">
-            <div class="text-2xl font-semibold text-slate-900">Data Sender Mode</div>
-            <div class="mt-2 text-sm text-slate-600">{{user_message}}</div>
-            <div class="mt-1 text-sm font-medium text-slate-500">{{transfer_controls.progressLabel}}</div>
-          </div>
-        <div class="w-full mb-4">
+        <div class="flex w-full flex-col gap-4 rounded-3xl border border-slate-200 bg-white p-4 shadow-xl shadow-slate-200/60 sm:p-5 lg:flex-row lg:items-start lg:gap-5 lg:p-6">
+          <div class="flex-1 space-y-3">
+            <div>
+              <div class="text-2xl font-semibold text-slate-900">Data Sender Mode</div>
+              <div class="mt-1 text-sm font-medium text-slate-500">{{transfer_controls.progressLabel}}</div>
+            </div>
+        <div class="w-full">
           <input
             :disabled="is_preparing || is_transferring || has_prepared_transfer"
             class="block w-full rounded-2xl border border-slate-300 bg-slate-50 px-4 py-3 text-sm text-slate-900 file:mr-4 file:rounded-xl file:border-0 file:bg-slate-900 file:px-4 file:py-2 file:text-sm file:font-medium file:text-white focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
@@ -26,13 +26,10 @@
             type="file"
           />
         </div>
-        <div class="w-full mb-6">
+        <div class="w-full">
           <label for="qr_rate" class="mb-2 block text-sm font-medium text-slate-700"
             >QR frame delay: {{qr_frame_delay_ms}} ms</label
           >
-          <div class="mb-2 text-xs text-slate-500">
-            Delay changes apply from the next QR frame.
-          </div>
           <input
             id="qr_rate"
             type="range"
@@ -44,7 +41,7 @@
             class="w-full accent-slate-900 disabled:cursor-not-allowed disabled:opacity-60"
           />
         </div>
-        <div class="mb-6 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+        <div class="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
           <label class="flex items-start gap-3 text-sm text-slate-700">
             <input
               type="checkbox"
@@ -60,7 +57,7 @@
             </span>
           </label>
         </div>
-        <div class="mb-6 flex flex-wrap gap-3">
+        <div class="flex flex-wrap gap-3">
           <button
             v-if="transfer_controls.showPrimary"
             v-on:click="start_transfer"
@@ -84,7 +81,7 @@
             Reset Transfer
           </button>
         </div>
-        <div v-if="has_prepared_transfer || is_paused || is_transferring" class="mb-6 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+        <div v-if="has_prepared_transfer || is_paused || is_transferring" class="rounded-2xl border border-slate-200 bg-slate-50 p-4">
           <div class="mb-2 text-sm font-semibold text-slate-800">Replay missed chunks</div>
           <div class="mb-3 text-xs text-slate-500">
             Enter missing chunk indexes or ranges, for example: 5, 22, 35-60
@@ -107,7 +104,10 @@
           <div v-if="recovery_error" class="mt-2 text-sm text-rose-600">{{recovery_error}}</div>
           <div v-else-if="recovery_success" class="mt-2 text-sm text-emer-600">{{recovery_success}}</div>
         </div>
-        <div id="qrcode" class="flex justify-center rounded-3xl bg-slate-50 p-4"></div>
+        </div>
+        <div class="flex min-w-0 flex-1 items-center justify-center lg:max-w-[420px]">
+          <div id="qrcode" class="flex w-full max-w-[320px] justify-center rounded-3xl bg-slate-50 p-3 sm:max-w-[360px] lg:max-w-[400px]"></div>
+        </div>
         </div>
       </div>
     </div>
@@ -128,7 +128,7 @@
 
       createApp({
         setup() {
-          const user_message = ref("Choose file to get started");
+          const user_message = ref("");
           const is_preparing = ref(false);
           const is_transferring = ref(false);
           const is_paused = ref(false);

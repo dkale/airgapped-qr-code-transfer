@@ -137,7 +137,7 @@
       showPrimary: true,
       showPause: false,
       showReset: false,
-      progressLabel: "No transfer in progress",
+      progressLabel: "",
     };
   };
 

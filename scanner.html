@@ -10,17 +10,17 @@
   <body>
     <div id="app">
       <div
-        class="mx-auto flex min-h-screen w-full max-w-3xl flex-col items-center justify-center px-4 py-8"
+        class="mx-auto flex min-h-screen w-full max-w-5xl flex-col items-center justify-center px-3 py-3 sm:px-4 sm:py-4"
       >
-        <div class="w-full rounded-3xl border border-slate-200 bg-white p-6 shadow-xl shadow-slate-200/60">
-        <div class="text-2xl font-semibold text-slate-900 mb-2">Data Receiver Mode</div>
-        <div class="text-sm text-slate-600 mb-2">{{user_message}}</div>
-        <div class="text-sm font-medium text-slate-500 mb-4">{{receiver_detail}}</div>
-        <div class="text-sm mb-4 text-slate-700">
+        <div class="flex w-full flex-col gap-4 rounded-3xl border border-slate-200 bg-white p-4 shadow-xl shadow-slate-200/60 sm:p-5 lg:flex-row lg:items-start lg:gap-5 lg:p-6">
+        <div class="flex-1 space-y-3">
+        <div class="text-2xl font-semibold text-slate-900">Data Receiver Mode</div>
+        <div class="text-sm font-medium text-slate-500">{{receiver_detail}}</div>
+        <div class="text-sm text-slate-700">
           Progress: {{Object.keys(decoded_chunks).length}} /
           {{file_metadata.chunks || 0}}
         </div>
-        <div class="mb-6 flex flex-wrap gap-3">
+        <div class="flex flex-wrap gap-3">
           <button
             v-if="!is_receiving && !is_paused"
             v-on:click="start_receiver"
@@ -50,11 +50,17 @@
             Stop Receiver
           </button>
         </div>
-        <div v-if="missing_chunk_summary" class="mb-4 rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">
+        <div v-if="missing_chunk_summary" class="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">
           <div class="font-semibold text-slate-800">Missing chunk indexes</div>
           <div class="mt-1">{{missing_chunk_summary}}</div>
+          <div v-if="received_chunk_summary" class="mt-2 text-xs text-slate-500">
+            Received so far: {{received_chunk_summary}}
+          </div>
         </div>
-        <video id="videoElement" class="w-full rounded-3xl bg-slate-950" muted autoplay playsinline></video>
+        </div>
+        <div class="flex min-w-0 flex-1 items-center justify-center lg:max-w-[420px]">
+          <video id="videoElement" class="w-full max-w-[360px] rounded-3xl bg-slate-950 sm:max-w-[420px] lg:max-w-[420px]" muted autoplay playsinline></video>
+        </div>
         </div>
       </div>
     </div>
@@ -75,13 +81,14 @@
 
       createApp({
         setup() {
-          const user_message = ref("Click receive button to start receiving");
-          const receiver_detail = ref("Point the camera at the sender QR code");
+          const user_message = ref("");
+          const receiver_detail = ref("");
           const decoded_chunks = ref({});
           const file_metadata = reactive({});
           const is_receiving = ref(false);
           const is_paused = ref(false);
           const missing_chunk_summary = ref("");
+          const received_chunk_summary = ref("");
           let canvas, context, videoElement;
 
           const decode_data = (input_string) => {
@@ -129,6 +136,10 @@
               totalChunks,
               receivedIndexes,
             });
+            received_chunk_summary.value = getMissingChunkSummary({
+              totalChunks: totalChunks,
+              receivedIndexes: [],
+            });
             is_receiving.value = false;
             is_paused.value = true;
             user_message.value = "Receiver paused. Review the missing chunk indexes below.";
@@ -141,6 +152,7 @@
             decoded_chunks.value = {};
             clear_file_metadata();
             missing_chunk_summary.value = "";
+            received_chunk_summary.value = "";
             user_message.value = "Click receive button to start receiving";
             receiver_detail.value = "Point the camera at the sender QR code";
           };
@@ -152,6 +164,7 @@
             } else {
               decoded_chunks.value = {};
               missing_chunk_summary.value = "";
+              received_chunk_summary.value = "";
               is_paused.value = false;
               is_receiving.value = true;
             }
@@ -204,10 +217,17 @@
                 console.error("Error in Loop: ", error);
               }
               if (!is_receiving.value) {
-                clear_file_metadata();
-                decoded_chunks.value = {};
-                user_message.value = "Click receive button to start receiving";
-                receiver_detail.value = "Point the camera at the sender QR code";
+                if (!is_paused.value) {
+                  clear_file_metadata();
+                  decoded_chunks.value = {};
+                  missing_chunk_summary.value = "";
+                  received_chunk_summary.value = "";
+                  user_message.value = "Click receive button to start receiving";
+                  receiver_detail.value = "Point the camera at the sender QR code";
+                } else {
+                  user_message.value = "Receiver paused. Review the missing chunk indexes below.";
+                  receiver_detail.value = "Paused for review";
+                }
                 return true;
               }
             }
@@ -246,6 +266,7 @@
             file_metadata,
             decoded_chunks,
             missing_chunk_summary,
+            received_chunk_summary,
             stop_receiver,
             pause_receiver,
           };
