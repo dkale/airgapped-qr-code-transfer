@@ -7,6 +7,8 @@ const {
   parseRecoveryIndexes,
   formatRecoveryIndexes,
   getMissingChunkSummary,
+  getReceivedChunkSummary,
+  getTransferProgressChunkNumber,
 } = require("./generator-helpers.js");
 
 (() => {
@@ -76,6 +78,11 @@ const {
 })();
 
 (() => {
+  assert.strictEqual(getTransferProgressChunkNumber({ nextChunkIndex: 410, totalChunks: 2977 }), 411);
+  assert.strictEqual(getTransferProgressChunkNumber({ nextChunkIndex: 0, totalChunks: 2977 }), 1);
+})();
+
+(() => {
   const validResult = parseRecoveryIndexes("5, 22, 35-60, 121, 250-255, 322", 400);
   assert.deepStrictEqual(validResult, {
     ok: true,
@@ -83,6 +90,7 @@ const {
   });
   assert.strictEqual(formatRecoveryIndexes([5, 22, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 121, 250, 251, 252, 253, 254, 255, 322]), "5, 22, 35-60, 121, 250-255, 322");
   assert.strictEqual(getMissingChunkSummary({ totalChunks: 10, receivedIndexes: [0, 1, 2, 4, 5, 7] }), "3, 6, 8-9");
+  assert.strictEqual(getReceivedChunkSummary({ totalChunks: 10, receivedIndexes: [0, 1, 2, 4, 5, 7] }), "0-2, 4-5, 7");
 })();
 
 (() => {

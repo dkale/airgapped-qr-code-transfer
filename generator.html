@@ -313,6 +313,7 @@
             next_chunk_index.value = 0;
             prepared_transfer.recovery_indexes = parsed.indexes;
             prepared_transfer.recovery_mode = true;
+            prepared_transfer.recovery_cursor = 0;
             render_transfer_metadata("paused");
             user_message.value = "Recovery list prepared. Starting replay of the selected chunks.";
 
@@ -374,6 +375,7 @@
               total_chunks: transfer_plan.totalChunks,
               recovery_indexes: [],
               recovery_mode: false,
+              recovery_cursor: 0,
             };
             has_prepared_transfer.value = true;
             total_chunks.value = transfer_plan.totalChunks;
@@ -408,18 +410,28 @@
             const playback_indexes = recovery_mode
               ? prepared_transfer.recovery_indexes
               : Array.from({ length: prepared_transfer.total_chunks }, (_, index) => index);
+            const start_position = recovery_mode
+              ? prepared_transfer.recovery_cursor
+              : next_chunk_index.value;
+            const playback_slice = playback_indexes.slice(start_position);
 
             while (is_transferring.value) {
-              for (let i = 0; i < playback_indexes.length; i += 1) {
-                const chunk_index = playback_indexes[i];
+              for (let i = 0; i < playback_slice.length; i += 1) {
+                const chunk_index = playback_slice[i];
                 if (!is_transferring.value) {
-                  next_chunk_index.value = chunk_index;
+                  next_chunk_index.value = recovery_mode ? start_position + i : chunk_index;
+                  if (recovery_mode) {
+                    prepared_transfer.recovery_cursor = start_position + i;
+                  }
                   return;
                 }
 
                 await sleep(qr_frame_delay_ms.value);
                 if (!is_transferring.value) {
-                  next_chunk_index.value = chunk_index;
+                  next_chunk_index.value = recovery_mode ? start_position + i : chunk_index;
+                  if (recovery_mode) {
+                    prepared_transfer.recovery_cursor = start_position + i;
+                  }
                   return;
                 }
 
@@ -436,7 +448,10 @@
                   return;
                 }
 
-                next_chunk_index.value = chunk_index + 1;
+                next_chunk_index.value = recovery_mode ? start_position + i + 1 : chunk_index + 1;
+                if (recovery_mode) {
+                  prepared_transfer.recovery_cursor = start_position + i + 1;
+                }
                 user_message.value = `Sending chunk ${chunk_index + 1}/${prepared_transfer.total_chunks} ...`;
               }
 

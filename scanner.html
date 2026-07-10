@@ -20,6 +20,9 @@
           Progress: {{Object.keys(decoded_chunks).length}} /
           {{file_metadata.chunks || 0}}
         </div>
+        <div v-if="is_reconstructing" class="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">
+          Reconstructing and saving the transfer…
+        </div>
         <div class="flex flex-wrap gap-3">
           <button
             v-if="!is_receiving && !is_paused"
@@ -56,6 +59,9 @@
           <div v-if="received_chunk_summary" class="mt-2 text-xs text-slate-500">
             Received so far: {{received_chunk_summary}}
           </div>
+          <div class="mt-2 text-xs text-slate-500">
+            Latest chunk = the most recently scanned chunk number. Missing so far = chunks still absent from the receiver. Out-of-order gap = how far ahead the latest chunk is from the current contiguous prefix.
+          </div>
         </div>
         </div>
         <div class="flex min-w-0 flex-1 items-center justify-center lg:max-w-[420px]">
@@ -77,7 +83,7 @@
         parseTransferMetadata,
         shouldResetDecodedChunks,
       } = TransferProtocol;
-      const { getMissingChunkSummary } = GeneratorHelpers;
+      const { getMissingChunkSummary, getReceivedChunkSummary } = GeneratorHelpers;
 
       createApp({
         setup() {
@@ -87,6 +93,7 @@
           const file_metadata = reactive({});
           const is_receiving = ref(false);
           const is_paused = ref(false);
+          const is_reconstructing = ref(false);
           const missing_chunk_summary = ref("");
           const received_chunk_summary = ref("");
           let canvas, context, videoElement;
@@ -136,9 +143,9 @@
               totalChunks,
               receivedIndexes,
             });
-            received_chunk_summary.value = getMissingChunkSummary({
-              totalChunks: totalChunks,
-              receivedIndexes: [],
+            received_chunk_summary.value = getReceivedChunkSummary({
+              totalChunks,
+              receivedIndexes,
             });
             is_receiving.value = false;
             is_paused.value = true;
@@ -149,6 +156,7 @@
           const stop_receiver = () => {
             is_receiving.value = false;
             is_paused.value = false;
+            is_reconstructing.value = false;
             decoded_chunks.value = {};
             clear_file_metadata();
             missing_chunk_summary.value = "";
@@ -232,6 +240,9 @@
               }
             }
             user_message.value = "Data Transfer Complete";
+            is_reconstructing.value = true;
+            receiver_detail.value = "Reconstructing and saving file…";
+            await new Promise((resolve) => setTimeout(resolve, 50));
             let output_array = [];
             for (let i = 0; i < file_metadata.chunks; i++) {
               output_array = output_array.concat(decoded_chunks.value[i]);
@@ -240,6 +251,7 @@
             window.output_unit8array = output_unit8array;
             let inflated_array = pako.inflate(window.output_unit8array);
             download_file(inflated_array, file_metadata.name);
+            is_reconstructing.value = false;
             stop_receiver();
           };
 
@@ -263,6 +275,7 @@
             start_receiver,
             is_receiving,
             is_paused,
+            is_reconstructing,
             file_metadata,
             decoded_chunks,
             missing_chunk_summary,

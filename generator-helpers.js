@@ -70,6 +70,15 @@
     return null;
   };
 
+  const getTransferProgressChunkNumber = ({ nextChunkIndex, totalChunks }) => {
+    if (!Number.isInteger(totalChunks) || totalChunks <= 0) {
+      return 1;
+    }
+
+    const safeNextChunkIndex = Number.isInteger(nextChunkIndex) ? nextChunkIndex : 0;
+    return Math.min(safeNextChunkIndex + 1, totalChunks);
+  };
+
   const getTransferControls = ({
     hasPreparedTransfer,
     isPreparing,
@@ -98,7 +107,7 @@
         showReset: false,
         progressLabel:
           totalChunks > 0
-            ? `Sending chunk ${Math.min(nextChunkIndex + 1, totalChunks)} of ${totalChunks}`
+            ? `Sending chunk ${getTransferProgressChunkNumber({ nextChunkIndex, totalChunks })} of ${totalChunks}`
             : "Sending transfer",
       };
     }
@@ -112,7 +121,7 @@
         showReset: true,
         progressLabel:
           totalChunks > 0
-            ? `Paused at chunk ${Math.min(nextChunkIndex + 1, totalChunks)} of ${totalChunks}`
+            ? `Paused at chunk ${getTransferProgressChunkNumber({ nextChunkIndex, totalChunks })} of ${totalChunks}`
             : "Transfer paused",
       };
     }
@@ -270,14 +279,31 @@
     return formatRecoveryIndexes(missingIndexes);
   };
 
+  const getReceivedChunkSummary = ({ totalChunks, receivedIndexes }) => {
+    if (!Number.isInteger(totalChunks) || totalChunks <= 0) {
+      return "";
+    }
+
+    const receivedSet = new Set(Array.isArray(receivedIndexes) ? receivedIndexes : []);
+    const receivedChunkIndexes = [];
+    for (let index = 0; index < totalChunks; index += 1) {
+      if (receivedSet.has(index)) {
+        receivedChunkIndexes.push(index);
+      }
+    }
+    return formatRecoveryIndexes(receivedChunkIndexes);
+  };
+
   const api = {
     buildTransferName,
     findSupportedChunkSize,
+    getTransferProgressChunkNumber,
     getTransferControls,
     getFinalChunkHoldMs,
     parseRecoveryIndexes,
     formatRecoveryIndexes,
     getMissingChunkSummary,
+    getReceivedChunkSummary,
   };
 
   if (typeof module !== "undefined" && module.exports) {
