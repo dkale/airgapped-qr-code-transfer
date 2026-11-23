@@ -141,7 +141,7 @@
     }
 
     return {
-      primaryLabel: "Prepare & Start Transfer",
+      primaryLabel: "Generate QR",
       primaryDisabled: false,
       showPrimary: true,
       showPause: false,
